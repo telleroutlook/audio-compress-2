@@ -3,39 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Image Compressor</title>
+    <title>Advanced Audio Compressor</title>
     <link rel="stylesheet" href="css/styles.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Advanced Image Compressor</h1>
-            <p class="subtitle">Compress and optimize your images with advanced settings</p>
+            <h1>Advanced Audio Compressor</h1>
+            <p class="subtitle">Compress and optimize your audio files with advanced settings</p>
         </header>
 
         <section class="feature-info">
             <div class="feature-list">
                 <div class="feature-item">
                     <h3>Multiple Formats</h3>
-                    <p>Support for JPEG, PNG, and WebP formats</p>
+                    <p>Support for MP3, AAC, and WAV formats</p>
                 </div>
                 <div class="feature-item">
                     <h3>Batch Processing</h3>
-                    <p>Compress multiple images at once</p>
+                    <p>Compress multiple audio files at once</p>
                 </div>
                 <div class="feature-item">
                     <h3>Advanced Settings</h3>
-                    <p>Customize quality, size, and compression mode</p>
+                    <p>Customize quality, bitrate, and compression mode</p>
                 </div>
             </div>
         </section>
 
         <section id="uploadArea" class="upload-area">
-            <input type="file" id="fileInput" multiple accept="image/*" style="display: none;">
+            <input type="file" id="fileInput" multiple accept="audio/*" style="display: none;">
             <div class="upload-content">
-                <div class="upload-icon">📁</div>
-                <h2>Drop your images here</h2>
+                <div class="upload-icon">🎵</div>
+                <h2>Drop your audio files here</h2>
                 <p>or click to select files</p>
             </div>
         </section>
@@ -56,12 +56,12 @@
             <div class="control-group">
                 <h3>Output Format</h3>
                 <div class="format-buttons">
-                    <button class="format-btn" data-format="jpeg">JPEG</button>
-                    <button class="format-btn" data-format="png">PNG</button>
-                    <button class="format-btn" data-format="webp">WebP</button>
+                    <button class="format-btn" data-format="mp3">MP3</button>
+                    <button class="format-btn" data-format="aac">AAC</button>
+                    <button class="format-btn" data-format="wav">WAV</button>
                 </div>
                 <p id="formatDescription" class="format-description">
-                    <strong>JPEG</strong>: Best for photographs and complex images. Good compression with some quality loss.
+                    <strong>MP3</strong>: Most popular format with good compression. Compatible with all devices.
                 </p>
             </div>
 
@@ -73,7 +73,7 @@
                     <button class="format-btn" data-mode="maximum">Maximum</button>
                 </div>
                 <p id="modeDescription" class="format-description">
-                    <strong>Aggressive Mode</strong>: High compression rate, suitable for web transfer.
+                    <strong>Balanced Mode</strong>: Good balance between quality and file size.
                 </p>
             </div>
 
@@ -85,29 +85,36 @@
                     <span id="qualityValue">0.8</span>
                 </div>
                 <div class="slider-control">
-                    <label for="scaleSlider">Scale:</label>
-                    <input type="range" id="scaleSlider" min="0.1" max="1" step="0.1" value="1">
-                    <span id="scaleValue">100%</span>
+                    <label for="bitRate">Bitrate (kbps):</label>
+                    <input type="number" id="bitRate" value="128" min="64" max="320" step="32">
                 </div>
             </div>
 
             <div class="control-group">
-                <h3>Maximum Dimensions</h3>
+                <h3>Audio Settings</h3>
                 <div class="dimension-controls">
                     <div class="dimension-input">
-                        <label for="maxWidth">Max Width:</label>
-                        <input type="number" id="maxWidth" value="1600" min="100" max="10000">
-                        <span>px</span>
+                        <label for="sampleRate">Sample Rate:</label>
+                        <select id="sampleRate">
+                            <option value="44100">44.1 kHz</option>
+                            <option value="48000">48 kHz</option>
+                            <option value="32000">32 kHz</option>
+                            <option value="22050">22.05 kHz</option>
+                            <option value="16000">16 kHz</option>
+                        </select>
                     </div>
                     <div class="dimension-input">
-                        <label for="maxHeight">Max Height:</label>
-                        <input type="number" id="maxHeight" value="1200" min="100" max="10000">
-                        <span>px</span>
+                        <label for="bitDepth">Bit Depth:</label>
+                        <select id="bitDepth">
+                            <option value="16">16-bit</option>
+                            <option value="24">24-bit</option>
+                            <option value="8">8-bit</option>
+                        </select>
                     </div>
                 </div>
             </div>
 
-            <button id="convertBtn" class="convert-btn">Compress Images</button>
+            <button id="convertBtn" class="convert-btn">Compress Audio</button>
         </section>
 
         <section id="progressSection" class="progress-section" style="display: none;">
@@ -154,12 +161,17 @@
     </div>
 
     <script type="module">
-        import AdvancedImageCompressor from './js/AdvancedImageCompressor.js';
-        import ImageEditor from './js/ImageEditor.js';
+        import AdvancedAudioCompressor from './js/AdvancedAudioCompressor.js';
+        import AudioEditor from './js/AudioEditor.js';
         import BatchRenamer from './js/BatchRenamer.js';
 
-        // Initialize the compressor
-        window.compressor = new AdvancedImageCompressor();
+        // Initialize the compressor after user interaction
+        document.addEventListener('click', function initCompressor() {
+            if (!window.compressor) {
+                window.compressor = new AdvancedAudioCompressor();
+            }
+            document.removeEventListener('click', initCompressor);
+        }, { once: true });
     </script>
 </body>
 </html>

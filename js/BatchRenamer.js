@@ -1,4 +1,4 @@
-class BatchRenamer {
+export default class BatchRenamer {
     constructor() {
         this.renamer = document.createElement('div');
         this.renamer.className = 'batch-rename';
@@ -19,6 +19,11 @@ class BatchRenamer {
         `;
         document.body.appendChild(this.renamer);
         this.bindEvents();
+        this.template = '{original}';
+        this.prefix = '';
+        this.suffix = '';
+        this.startNumber = 1;
+        this.padding = 3;
     }
 
     bindEvents() {
@@ -96,6 +101,64 @@ class BatchRenamer {
             }
         }
     }
-}
 
-export default BatchRenamer; 
+    setTemplate(template) {
+        this.template = template;
+    }
+
+    setPrefix(prefix) {
+        this.prefix = prefix;
+    }
+
+    setSuffix(suffix) {
+        this.suffix = suffix;
+    }
+
+    setStartNumber(number) {
+        this.startNumber = parseInt(number) || 1;
+    }
+
+    setPadding(padding) {
+        this.padding = parseInt(padding) || 3;
+    }
+
+    generateName(originalName, index) {
+        let newName = this.template;
+        const extension = originalName.split('.').pop();
+        const baseName = originalName.substring(0, originalName.lastIndexOf('.'));
+
+        // Replace placeholders
+        newName = newName.replace('{original}', baseName);
+        newName = newName.replace('{number}', String(this.startNumber + index).padStart(this.padding, '0'));
+        newName = newName.replace('{date}', new Date().toISOString().split('T')[0]);
+        newName = newName.replace('{time}', new Date().toTimeString().split(' ')[0].replace(/:/g, '-'));
+
+        // Add prefix and suffix
+        newName = this.prefix + newName + this.suffix;
+
+        // Ensure valid filename
+        newName = newName.replace(/[<>:"/\\|?*]/g, '_');
+
+        return `${newName}.${extension}`;
+    }
+
+    generatePreview(files) {
+        return files.map((file, index) => {
+            const newName = this.generateName(file.name, index);
+            return {
+                original: file.name,
+                new: newName
+            };
+        });
+    }
+
+    renameFiles(files) {
+        return files.map((file, index) => {
+            const newName = this.generateName(file.name, index);
+            return {
+                file: file,
+                newName: newName
+            };
+        });
+    }
+} 
