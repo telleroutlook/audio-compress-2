@@ -31,11 +31,29 @@ class AdvancedAudioCompressor {
     
     async initLamejs() {
         try {
-            const lamejsModule = await import('lamejs');
-            this.lamejs = lamejsModule.default;
+            // Try different import methods
+            if (typeof window !== 'undefined' && window.lamejs) {
+                this.lamejs = window.lamejs;
+            } else {
+                // Try dynamic import with different approaches
+                try {
+                    const lamejsModule = await import('https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.0/lame.min.js');
+                    this.lamejs = lamejsModule.default || lamejsModule;
+                } catch (error) {
+                    // Fallback to global lamejs if available
+                    if (typeof lamejs !== 'undefined') {
+                        this.lamejs = lamejs;
+                    } else {
+                        throw new Error('lamejs library not available');
+                    }
+                }
+            }
+            
+            console.log('lamejs loaded successfully');
         } catch (error) {
             console.error('Failed to load lamejs:', error);
-            this.showStatus('Failed to load audio compression library', 'error');
+            this.showStatus('Audio compression library failed to load. Using alternative method.', 'warning');
+            this.lamejs = null;
         }
     }
     
@@ -407,145 +425,141 @@ class AdvancedAudioCompressor {
     }
     
     async compressAudio(file) {
-        if (!this.lamejs) {
-            throw new Error('Audio compression library not loaded');
+        if (this.lamejs) {
+            return this.compressAudioWithLamejs(file);
+        } else {
+            return this.compressAudioAlternative(file);
         }
-
+    }
+    
+    // Alternative compression method without lamejs
+    async compressAudioAlternative(file) {
         return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                reject(new Error('Compression timeout after 60 seconds'));
-            }, 60000);
-
             const reader = new FileReader();
             reader.onload = async (e) => {
                 try {
-                    console.log('Starting audio compression for:', file.name);
                     const arrayBuffer = e.target.result;
-                    console.log('File read complete, size:', arrayBuffer.byteLength);
-                    
                     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    console.log('AudioContext created');
                     
-                    try {
-                        console.log('Starting audio decoding...');
-                        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
-                        console.log('Audio decoded successfully:', {
-                            duration: audioBuffer.duration,
-                            sampleRate: audioBuffer.sampleRate,
-                            channels: audioBuffer.numberOfChannels
-                        });
-                        
-                        // Calculate new sample rate and bit depth based on settings
-                        let targetSampleRate = audioBuffer.sampleRate;
-                        let targetChannels = audioBuffer.numberOfChannels;
-                        
-                        console.log('Applying compression settings...');
-                        if (this.settings.quality <= 0.3) {
-                            targetSampleRate = Math.min(22050, targetSampleRate);
-                        } else if (this.settings.quality <= 0.6) {
-                            targetSampleRate = Math.min(44100, targetSampleRate);
-                        }
-                        
-                        if (this.settings.mode === 'aggressive') {
-                            targetChannels = Math.min(1, targetChannels);
-                            targetSampleRate = Math.min(22050, targetSampleRate);
-                        } else if (this.settings.mode === 'maximum') {
-                            targetChannels = 1;
-                            targetSampleRate = Math.min(16000, targetSampleRate);
-                        }
-                        
-                        console.log('Creating offline context with parameters:', {
-                            channels: targetChannels,
-                            sampleRate: targetSampleRate
-                        });
-                        
-                        const offlineContext = new OfflineAudioContext(
-                            targetChannels,
-                            Math.floor(audioBuffer.duration * targetSampleRate),
-                            targetSampleRate
-                        );
-                        
-                        const targetBuffer = offlineContext.createBuffer(
-                            targetChannels,
-                            Math.floor(audioBuffer.duration * targetSampleRate),
-                            targetSampleRate
-                        );
-                        
-                        console.log('Starting audio resampling...');
-                        for (let channel = 0; channel < targetChannels; channel++) {
-                            const sourceChannel = Math.min(channel, audioBuffer.numberOfChannels - 1);
-                            const inputData = audioBuffer.getChannelData(sourceChannel);
-                            const outputData = targetBuffer.getChannelData(channel);
-                            
-                            for (let i = 0; i < targetBuffer.length; i++) {
-                                const sourceIndex = Math.floor(i * audioBuffer.sampleRate / targetSampleRate);
-                                outputData[i] = inputData[sourceIndex];
-                            }
-                        }
-                        
-                        console.log('Converting to MP3 format...');
-                        const mp3encoder = new this.lamejs.Mp3Encoder(targetChannels, targetSampleRate, this.settings.bitRate);
-                        const mp3Data = [];
-                        
-                        const sampleBlockSize = 1152;
-                        const numSamples = targetBuffer.length;
-                        const numBlocks = Math.ceil(numSamples / sampleBlockSize);
-                        
-                        for (let i = 0; i < numBlocks; i++) {
-                            const start = i * sampleBlockSize;
-                            const end = Math.min(start + sampleBlockSize, numSamples);
-                            const leftChunk = new Int16Array(sampleBlockSize);
-                            const rightChunk = new Int16Array(sampleBlockSize);
-                            
-                            for (let j = start; j < end; j++) {
-                                leftChunk[j - start] = targetBuffer.getChannelData(0)[j] * 0x7FFF;
-                                if (targetChannels > 1) {
-                                    rightChunk[j - start] = targetBuffer.getChannelData(1)[j] * 0x7FFF;
-                                }
-                            }
-                            
-                            let mp3buf;
-                            if (targetChannels === 1) {
-                                mp3buf = mp3encoder.encodeBuffer(leftChunk);
-                            } else {
-                                mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
-                            }
-                            
-                            if (mp3buf.length > 0) {
-                                mp3Data.push(mp3buf);
-                            }
-                        }
-                        
-                        const end = mp3encoder.flush();
-                        if (end.length > 0) {
-                            mp3Data.push(end);
-                        }
-                        
-                        const blob = new Blob(mp3Data, { type: 'audio/mp3' });
-                        resolve({
-                            blob: blob,
-                            size: blob.size,
-                            type: 'audio/mp3',
-                            name: file.name.replace(/\.[^/.]+$/, '.mp3')
-                        });
-                        
-                        clearTimeout(timeout);
-                    } catch (error) {
-                        console.error('Error decoding audio data:', error);
-                        reject(new Error('Failed to decode audio: ' + error.message));
+                    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+                    
+                    // Calculate compression parameters
+                    let targetSampleRate = audioBuffer.sampleRate;
+                    let targetChannels = audioBuffer.numberOfChannels;
+                    let targetBitDepth = 16;
+                    
+                    // Apply compression settings
+                    if (this.settings.mode === 'aggressive') {
+                        targetSampleRate = Math.min(22050, targetSampleRate);
+                        targetChannels = 1;
+                        targetBitDepth = 8;
+                    } else if (this.settings.mode === 'maximum') {
+                        targetSampleRate = Math.min(16000, targetSampleRate);
+                        targetChannels = 1;
+                        targetBitDepth = 8;
+                    } else {
+                        targetSampleRate = Math.min(32000, targetSampleRate);
                     }
+                    
+                    // Create compressed buffer
+                    const compressedBuffer = audioContext.createBuffer(
+                        targetChannels,
+                        Math.floor(audioBuffer.duration * targetSampleRate),
+                        targetSampleRate
+                    );
+                    
+                    // Resample and compress
+                    for (let channel = 0; channel < targetChannels; channel++) {
+                        const sourceChannel = Math.min(channel, audioBuffer.numberOfChannels - 1);
+                        const inputData = audioBuffer.getChannelData(sourceChannel);
+                        const outputData = compressedBuffer.getChannelData(channel);
+                        
+                        for (let i = 0; i < compressedBuffer.length; i++) {
+                            const sourceIndex = Math.floor(i * audioBuffer.sampleRate / targetSampleRate);
+                            let sample = inputData[sourceIndex] || 0;
+                            
+                            // Apply bit depth compression
+                            if (targetBitDepth === 8) {
+                                sample = Math.round(sample * 127) / 127;
+                            } else {
+                                sample = Math.round(sample * 32767) / 32767;
+                            }
+                            
+                            outputData[i] = sample;
+                        }
+                    }
+                    
+                    // Export as WAV (more compatible than MP3 without lamejs)
+                    const wavBlob = await this.exportToWav(compressedBuffer);
+                    
+                    resolve({
+                        blob: wavBlob,
+                        size: wavBlob.size,
+                        type: 'audio/wav',
+                        name: file.name.replace(/\.[^/.]+$/, '.wav'),
+                        originalSize: file.size,
+                        duration: audioBuffer.duration,
+                        sampleRate: targetSampleRate,
+                        channels: targetChannels
+                    });
+                    
                 } catch (error) {
-                    console.error('Compression error:', error);
                     reject(error);
                 }
             };
             
-            reader.onerror = () => {
-                reject(new Error('Failed to read file'));
-            };
-            
+            reader.onerror = () => reject(new Error('Failed to read file'));
             reader.readAsArrayBuffer(file);
         });
+    }
+    
+    // WAV export method
+    async exportToWav(buffer) {
+        const numberOfChannels = buffer.numberOfChannels;
+        const length = buffer.length;
+        const sampleRate = buffer.sampleRate;
+        const bitsPerSample = 16;
+        const bytesPerSample = bitsPerSample / 8;
+        const blockAlign = numberOfChannels * bytesPerSample;
+        const byteRate = sampleRate * blockAlign;
+        const dataSize = length * blockAlign;
+        const headerSize = 44;
+        const totalSize = headerSize + dataSize;
+
+        const arrayBuffer = new ArrayBuffer(totalSize);
+        const view = new DataView(arrayBuffer);
+
+        const writeString = (offset, string) => {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        };
+
+        writeString(0, 'RIFF');
+        view.setUint32(4, totalSize - 8, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, numberOfChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, byteRate, true);
+        view.setUint16(32, blockAlign, true);
+        view.setUint16(34, bitsPerSample, true);
+        writeString(36, 'data');
+        view.setUint32(40, dataSize, true);
+
+        let offset = 44;
+        for (let i = 0; i < length; i++) {
+            for (let channel = 0; channel < numberOfChannels; channel++) {
+                const sample = buffer.getChannelData(channel)[i];
+                const value = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+                view.setInt16(offset, Math.max(-32768, Math.min(32767, value)), true);
+                offset += 2;
+            }
+        }
+
+        return new Blob([arrayBuffer], { type: 'audio/wav' });
     }
     
     showResults() {
@@ -623,7 +637,7 @@ class AdvancedAudioCompressor {
                 <div class="result-audio-container">
                     <h5>Compressed Audio</h5>
                     <audio controls>
-                        <source src="${URL.createObjectURL(result.blob)}" type="audio/mp3">
+                        <source src="${URL.createObjectURL(result.blob)}" type="audio/wav">
                         Your browser does not support the audio element.
                     </audio>
                 </div>
@@ -754,7 +768,7 @@ class AdvancedAudioCompressor {
                 <div class="comparison-item">
                     <h5>Compressed</h5>
                     <audio controls>
-                        <source src="${URL.createObjectURL(result.blob)}" type="audio/mp3">
+                        <source src="${URL.createObjectURL(result.blob)}" type="audio/wav">
                     </audio>
                     <div class="comparison-size">${this.formatFileSize(result.size)}</div>
                 </div>
