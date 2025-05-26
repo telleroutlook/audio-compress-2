@@ -144,7 +144,6 @@ class AdvancedAudioCompressor {
     }
     
     bindEvents() {
-        this.uploadArea.addEventListener('click', () => this.fileInput.click());
         this.uploadArea.addEventListener('dragover', this.handleDragOver.bind(this));
         this.uploadArea.addEventListener('dragleave', this.handleDragLeave.bind(this));
         this.uploadArea.addEventListener('drop', this.handleDrop.bind(this));
@@ -376,6 +375,10 @@ class AdvancedAudioCompressor {
         this.compressedResults = [];
         this.isProcessing = true;
         
+        // 重置进度条
+        this.progressFill.style.width = '0%';
+        this.progressFill.style.transition = 'none';
+        
         const startTime = Date.now();
         let totalSaved = 0;
         let totalOriginalSize = 0;
@@ -384,11 +387,10 @@ class AdvancedAudioCompressor {
         try {
             for (let i = 0; i < this.selectedFiles.length; i++) {
                 const file = this.selectedFiles[i];
-                const progress = ((i + 1) / this.selectedFiles.length) * 100;
                 
-                this.progressFill.style.width = `${progress}%`;
-                this.progressText.textContent = `Processing: ${file.name} (${i + 1}/${this.selectedFiles.length})`;
-                this.showStatus(`Processing ${file.name}...`, 'info');
+                // 初始进度显示
+                this.updateProgress(i, 0, file.name);
+                this.showStatus(`Starting to process ${file.name}...`, 'info');
                 
                 try {
                     console.log(`Starting compression for file ${i + 1}/${this.selectedFiles.length}:`, file.name);
@@ -403,8 +405,15 @@ class AdvancedAudioCompressor {
                         throw new Error('File too large. Maximum size is 100MB.');
                     }
                     
-                    const result = await this.compressAudio(file);
+                    // 传递进度回调函数
+                    const result = await this.compressAudio(file, (progress) => {
+                        this.updateProgress(i, progress, file.name);
+                    });
+                    
                     console.log('Compression completed for:', file.name, result);
+                    
+                    // 完成当前文件的进度
+                    this.updateProgress(i, 100, file.name);
                     
                     this.compressedResults.push(result);
                     this.updatePreview(file, result);
@@ -430,6 +439,10 @@ class AdvancedAudioCompressor {
                 }
             }
             
+            // 最终进度设置为100%
+            this.progressFill.style.width = '100%';
+            this.progressText.textContent = 'Processing complete!';
+            
             const endTime = Date.now();
             const processingTime = ((endTime - startTime) / 1000).toFixed(1);
             
@@ -450,28 +463,41 @@ class AdvancedAudioCompressor {
         }
     }
     
-    async compressAudio(file) {
+    async compressAudio(file, progressCallback) {
         if (this.lamejs) {
-            return this.compressAudioWithLamejs(file);
+            return this.compressAudioWithLamejs(file, progressCallback);
         } else {
-            return this.compressAudioAlternative(file);
+            return this.compressAudioAlternative(file, progressCallback);
         }
     }
     
-    async compressAudioWithLamejs(file) {
+    async compressAudioWithLamejs(file, progressCallback) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = async (e) => {
                 try {
+                    // 初始化阶段
+                    if (progressCallback) progressCallback(5);
+                    await new Promise(resolve => setTimeout(resolve, 100)); // 添加小延迟使进度更平滑
+                    
                     const arrayBuffer = e.target.result;
                     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    
+                    if (progressCallback) progressCallback(10);
+                    await new Promise(resolve => setTimeout(resolve, 100));
                     
                     // 确保 audioContext 处于运行状态
                     if (audioContext.state === 'suspended') {
                         await audioContext.resume();
                     }
                     
+                    if (progressCallback) progressCallback(15);
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    
                     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+
+                    if (progressCallback) progressCallback(25);
+                    await new Promise(resolve => setTimeout(resolve, 100));
 
                     // 获取音频数据
                     const channels = audioBuffer.numberOfChannels;
@@ -482,6 +508,9 @@ class AdvancedAudioCompressor {
                     if (!this.lamejs || typeof this.lamejs.Mp3Encoder !== 'function') {
                         throw new Error('lamejs Mp3Encoder not available');
                     }
+
+                    if (progressCallback) progressCallback(35);
+                    await new Promise(resolve => setTimeout(resolve, 100));
 
                     // 创建 MP3 编码器
                     const mp3encoder = new this.lamejs.Mp3Encoder(
@@ -497,6 +526,9 @@ class AdvancedAudioCompressor {
                     const mp3Data = [];
                     const sampleBlockSize = 1152; // LAME 要求的块大小
 
+                    if (progressCallback) progressCallback(45);
+                    await new Promise(resolve => setTimeout(resolve, 100));
+
                     // 处理每个声道
                     if (channels === 1) {
                         // 单声道处理
@@ -509,12 +541,31 @@ class AdvancedAudioCompressor {
                             int16Array[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
                         }
 
-                        // 分块编码
+                        if (progressCallback) progressCallback(55);
+                        await new Promise(resolve => setTimeout(resolve, 100));
+
+                        // 分块编码，并在过程中更新进度
+                        const totalBlocks = Math.ceil(int16Array.length / sampleBlockSize);
+                        let processedBlocks = 0;
+                        
                         for (let i = 0; i < int16Array.length; i += sampleBlockSize) {
                             const chunk = int16Array.slice(i, i + sampleBlockSize);
                             const mp3buf = mp3encoder.encodeBuffer(chunk);
                             if (mp3buf.length > 0) {
                                 mp3Data.push(mp3buf);
+                            }
+                            
+                            processedBlocks++;
+                            // 更新进度 (55% 到 85%)
+                            if (progressCallback && totalBlocks > 0) {
+                                const blockProgress = processedBlocks / totalBlocks;
+                                const currentProgress = 55 + (blockProgress * 30);
+                                progressCallback(Math.min(currentProgress, 85));
+                                
+                                // 每处理一定数量的块后添加小延迟，使进度更新更平滑
+                                if (processedBlocks % 10 === 0) {
+                                    await new Promise(resolve => setTimeout(resolve, 10));
+                                }
                             }
                         }
                     } else {
@@ -532,7 +583,13 @@ class AdvancedAudioCompressor {
                             rightInt16[i] = rightSample < 0 ? rightSample * 0x8000 : rightSample * 0x7FFF;
                         }
 
+                        if (progressCallback) progressCallback(55);
+                        await new Promise(resolve => setTimeout(resolve, 100));
+
                         // 分块编码
+                        const totalBlocks = Math.ceil(leftInt16.length / sampleBlockSize);
+                        let processedBlocks = 0;
+                        
                         for (let i = 0; i < leftInt16.length; i += sampleBlockSize) {
                             const leftChunk = leftInt16.slice(i, i + sampleBlockSize);
                             const rightChunk = rightInt16.slice(i, i + sampleBlockSize);
@@ -540,8 +597,24 @@ class AdvancedAudioCompressor {
                             if (mp3buf.length > 0) {
                                 mp3Data.push(mp3buf);
                             }
+                            
+                            processedBlocks++;
+                            // 更新进度 (55% 到 85%)
+                            if (progressCallback && totalBlocks > 0) {
+                                const blockProgress = processedBlocks / totalBlocks;
+                                const currentProgress = 55 + (blockProgress * 30);
+                                progressCallback(Math.min(currentProgress, 85));
+                                
+                                // 每处理一定数量的块后添加小延迟，使进度更新更平滑
+                                if (processedBlocks % 10 === 0) {
+                                    await new Promise(resolve => setTimeout(resolve, 10));
+                                }
+                            }
                         }
                     }
+
+                    if (progressCallback) progressCallback(90);
+                    await new Promise(resolve => setTimeout(resolve, 100));
 
                     // 完成编码
                     const finalMp3buf = mp3encoder.flush();
@@ -553,8 +626,13 @@ class AdvancedAudioCompressor {
                         throw new Error('No MP3 data generated');
                     }
 
+                    if (progressCallback) progressCallback(95);
+                    await new Promise(resolve => setTimeout(resolve, 100));
+
                     // 创建 MP3 blob
                     const mp3Blob = new Blob(mp3Data, { type: 'audio/mp3' });
+
+                    if (progressCallback) progressCallback(100);
 
                     resolve({
                         blob: mp3Blob,
@@ -579,11 +657,13 @@ class AdvancedAudioCompressor {
     }
     
     // Alternative compression method without lamejs
-    async compressAudioAlternative(file) {
+    async compressAudioAlternative(file, progressCallback) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = async (e) => {
                 try {
+                    if (progressCallback) progressCallback(10);
+                    
                     const arrayBuffer = e.target.result;
                     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     
@@ -592,7 +672,11 @@ class AdvancedAudioCompressor {
                         await audioContext.resume();
                     }
                     
+                    if (progressCallback) progressCallback(25);
+                    
                     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+                    
+                    if (progressCallback) progressCallback(40);
                     
                     // 计算压缩参数
                     let targetSampleRate = audioBuffer.sampleRate;
@@ -616,6 +700,8 @@ class AdvancedAudioCompressor {
                             break;
                     }
                     
+                    if (progressCallback) progressCallback(50);
+                    
                     // 创建压缩后的缓冲区
                     const compressedLength = Math.floor(audioBuffer.duration * targetSampleRate);
                     const compressedBuffer = audioContext.createBuffer(
@@ -623,6 +709,8 @@ class AdvancedAudioCompressor {
                         compressedLength,
                         targetSampleRate
                     );
+                    
+                    if (progressCallback) progressCallback(60);
                     
                     // 重采样和压缩
                     for (let channel = 0; channel < targetChannels; channel++) {
@@ -645,11 +733,23 @@ class AdvancedAudioCompressor {
                             // 限制范围
                             sample = Math.max(-1, Math.min(1, sample));
                             outputData[i] = sample;
+                            
+                            // 更新进度 (60% 到 85%)
+                            if (progressCallback && i % 1000 === 0) {
+                                const sampleProgress = i / compressedLength;
+                                const channelProgress = (channel + sampleProgress) / targetChannels;
+                                const currentProgress = 60 + (channelProgress * 25);
+                                progressCallback(Math.min(currentProgress, 85));
+                            }
                         }
                     }
                     
+                    if (progressCallback) progressCallback(90);
+                    
                     // 导出为 WAV
                     const wavBlob = await this.exportToWav(compressedBuffer);
+                    
+                    if (progressCallback) progressCallback(100);
                     
                     resolve({
                         blob: wavBlob,
@@ -935,6 +1035,47 @@ class AdvancedAudioCompressor {
             `;
             preview.appendChild(comparison);
         }
+    }
+
+    updateProgress(fileIndex, fileProgress, fileName) {
+        const totalFiles = this.selectedFiles.length;
+        // 计算当前文件的权重（基于文件大小）
+        const currentFile = this.selectedFiles[fileIndex];
+        const totalSize = this.selectedFiles.reduce((sum, file) => sum + file.size, 0);
+        const fileWeight = currentFile.size / totalSize;
+        
+        // 计算已完成文件的进度
+        const completedProgress = this.selectedFiles
+            .slice(0, fileIndex)
+            .reduce((sum, file) => sum + (file.size / totalSize) * 100, 0);
+        
+        // 计算当前文件的进度贡献
+        const currentFileProgress = fileProgress * fileWeight;
+        
+        // 总进度 = 已完成文件的进度 + 当前文件的进度
+        const totalProgress = completedProgress + currentFileProgress;
+        
+        // 添加平滑过渡效果
+        this.progressFill.style.transition = 'width 0.3s ease-in-out';
+        this.progressFill.style.width = `${Math.min(totalProgress, 100)}%`;
+        
+        // 更新进度文本，添加更多详细信息
+        let statusText = `Processing: ${fileName} (${fileIndex + 1}/${totalFiles})`;
+        if (fileProgress < 100) {
+            statusText += ` - ${Math.round(fileProgress)}%`;
+            if (fileProgress < 20) {
+                statusText += ' (Initializing...)';
+            } else if (fileProgress < 40) {
+                statusText += ' (Decoding audio...)';
+            } else if (fileProgress < 60) {
+                statusText += ' (Preparing encoder...)';
+            } else if (fileProgress < 85) {
+                statusText += ' (Encoding audio...)';
+            } else {
+                statusText += ' (Finalizing...)';
+            }
+        }
+        this.progressText.textContent = statusText;
     }
 }
 
