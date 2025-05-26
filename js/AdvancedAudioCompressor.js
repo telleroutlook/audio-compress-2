@@ -11,7 +11,7 @@ class AdvancedAudioCompressor {
             bitRate: 128,
             sampleRate: 44100,
             bitDepth: 16,
-            mode: 'aggressive'
+            mode: 'maximum'
         };
         
         this.previewAudios = new Map();
@@ -26,7 +26,7 @@ class AdvancedAudioCompressor {
         
         // 确保默认选择正确的按钮
         document.querySelector('.format-btn[data-format="mp3"]').classList.add('active');
-        document.querySelector('.format-btn[data-mode="aggressive"]').classList.add('active');
+        document.querySelector('.format-btn[data-mode="maximum"]').classList.add('active');
     }
     
     async initLamejs() {
