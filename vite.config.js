@@ -27,7 +27,14 @@ export default defineConfig({
   },
   plugins: [
     commonjs({
-      include: [/lamejs/]
+      include: [/lamejs/],
+      transformMixedEsModules: true,
+      requireReturnsDefault: 'auto'
     })
-  ]
+  ],
+  resolve: {
+    alias: {
+      'lamejs': 'lamejs'
+    }
+  }
 }) 

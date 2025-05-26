@@ -1,6 +1,5 @@
 import AudioEditor from './AudioEditor.js';
 import BatchRenamer from './BatchRenamer.js';
-import lamejs from 'lamejs';
 
 class AdvancedAudioCompressor {
     constructor() {
@@ -19,13 +18,25 @@ class AdvancedAudioCompressor {
         this.compressionHistory = [];
         this.audioEditor = new AudioEditor();
         this.batchRenamer = new BatchRenamer();
+        this.lamejs = null; // 初始化 lamejs 为 null
         this.initializeElements();
         this.bindEvents();
         this.loadSettings();
+        this.initLamejs(); // 添加初始化 lamejs 的调用
         
         // 确保默认选择正确的按钮
         document.querySelector('.format-btn[data-format="mp3"]').classList.add('active');
         document.querySelector('.format-btn[data-mode="aggressive"]').classList.add('active');
+    }
+    
+    async initLamejs() {
+        try {
+            const lamejsModule = await import('lamejs');
+            this.lamejs = lamejsModule.default;
+        } catch (error) {
+            console.error('Failed to load lamejs:', error);
+            this.showStatus('Failed to load audio compression library', 'error');
+        }
     }
     
     initializeElements() {
@@ -396,6 +407,10 @@ class AdvancedAudioCompressor {
     }
     
     async compressAudio(file) {
+        if (!this.lamejs) {
+            throw new Error('Audio compression library not loaded');
+        }
+
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 reject(new Error('Compression timeout after 60 seconds'));
@@ -425,19 +440,17 @@ class AdvancedAudioCompressor {
                         let targetChannels = audioBuffer.numberOfChannels;
                         
                         console.log('Applying compression settings...');
-                        // Apply quality settings
                         if (this.settings.quality <= 0.3) {
                             targetSampleRate = Math.min(22050, targetSampleRate);
                         } else if (this.settings.quality <= 0.6) {
                             targetSampleRate = Math.min(44100, targetSampleRate);
                         }
                         
-                        // Apply mode settings
                         if (this.settings.mode === 'aggressive') {
-                            targetChannels = Math.min(1, targetChannels); // Force mono
+                            targetChannels = Math.min(1, targetChannels);
                             targetSampleRate = Math.min(22050, targetSampleRate);
                         } else if (this.settings.mode === 'maximum') {
-                            targetChannels = 1; // Force mono
+                            targetChannels = 1;
                             targetSampleRate = Math.min(16000, targetSampleRate);
                         }
                         
@@ -446,14 +459,12 @@ class AdvancedAudioCompressor {
                             sampleRate: targetSampleRate
                         });
                         
-                        // Create offline context for processing
                         const offlineContext = new OfflineAudioContext(
                             targetChannels,
                             Math.floor(audioBuffer.duration * targetSampleRate),
                             targetSampleRate
                         );
                         
-                        // Create buffer with new parameters
                         const targetBuffer = offlineContext.createBuffer(
                             targetChannels,
                             Math.floor(audioBuffer.duration * targetSampleRate),
@@ -461,79 +472,78 @@ class AdvancedAudioCompressor {
                         );
                         
                         console.log('Starting audio resampling...');
-                        // Copy and resample audio data
                         for (let channel = 0; channel < targetChannels; channel++) {
                             const sourceChannel = Math.min(channel, audioBuffer.numberOfChannels - 1);
-                            const sourceData = audioBuffer.getChannelData(sourceChannel);
-                            const targetData = targetBuffer.getChannelData(channel);
+                            const inputData = audioBuffer.getChannelData(sourceChannel);
+                            const outputData = targetBuffer.getChannelData(channel);
                             
-                            // Simple resampling
-                            const ratio = sourceData.length / targetData.length;
-                            for (let i = 0; i < targetData.length; i++) {
-                                const sourceIndex = Math.floor(i * ratio);
-                                targetData[i] = sourceData[sourceIndex] || 0;
+                            for (let i = 0; i < targetBuffer.length; i++) {
+                                const sourceIndex = Math.floor(i * audioBuffer.sampleRate / targetSampleRate);
+                                outputData[i] = inputData[sourceIndex];
                             }
                         }
                         
                         console.log('Converting to MP3 format...');
-                        // Convert to MP3 using lamejs
-                        const mp3encoder = new lamejs.Mp3Encoder(targetChannels, targetSampleRate, this.settings.bitRate);
+                        const mp3encoder = new this.lamejs.Mp3Encoder(targetChannels, targetSampleRate, this.settings.bitRate);
                         const mp3Data = [];
                         
-                        // Process audio data in chunks
-                        const chunkSize = 1152; // Standard MP3 frame size
-                        const samples = new Int16Array(chunkSize * targetChannels);
+                        const sampleBlockSize = 1152;
+                        const numSamples = targetBuffer.length;
+                        const numBlocks = Math.ceil(numSamples / sampleBlockSize);
                         
-                        for (let i = 0; i < targetBuffer.length; i += chunkSize) {
-                            const chunk = targetBuffer.getChannelData(0).slice(i, i + chunkSize);
-                            for (let j = 0; j < chunk.length; j++) {
-                                samples[j] = chunk[j] * 0x7FFF;
+                        for (let i = 0; i < numBlocks; i++) {
+                            const start = i * sampleBlockSize;
+                            const end = Math.min(start + sampleBlockSize, numSamples);
+                            const leftChunk = new Int16Array(sampleBlockSize);
+                            const rightChunk = new Int16Array(sampleBlockSize);
+                            
+                            for (let j = start; j < end; j++) {
+                                leftChunk[j - start] = targetBuffer.getChannelData(0)[j] * 0x7FFF;
+                                if (targetChannels > 1) {
+                                    rightChunk[j - start] = targetBuffer.getChannelData(1)[j] * 0x7FFF;
+                                }
                             }
                             
-                            const mp3buf = mp3encoder.encodeBuffer(samples);
+                            let mp3buf;
+                            if (targetChannels === 1) {
+                                mp3buf = mp3encoder.encodeBuffer(leftChunk);
+                            } else {
+                                mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
+                            }
+                            
                             if (mp3buf.length > 0) {
                                 mp3Data.push(mp3buf);
                             }
                         }
                         
-                        // Flush the encoder
                         const end = mp3encoder.flush();
                         if (end.length > 0) {
                             mp3Data.push(end);
                         }
                         
-                        // Create blob from MP3 data
                         const blob = new Blob(mp3Data, { type: 'audio/mp3' });
-                        
-                        console.log('Cleaning up audio contexts...');
-                        // Close contexts
-                        await audioContext.close();
+                        resolve({
+                            blob: blob,
+                            size: blob.size,
+                            type: 'audio/mp3',
+                            name: file.name.replace(/\.[^/.]+$/, '.mp3')
+                        });
                         
                         clearTimeout(timeout);
-                        resolve({
-                            name: file.name,
-                            size: blob.size,
-                            blob: blob,
-                            originalSize: file.size,
-                            duration: audioBuffer.duration,
-                            sampleRate: targetSampleRate,
-                            channels: targetChannels
-                        });
-                    } catch (decodeError) {
-                        console.error('Error decoding audio data:', decodeError);
-                        throw new Error(`Failed to decode audio: ${decodeError.message}`);
+                    } catch (error) {
+                        console.error('Error decoding audio data:', error);
+                        reject(new Error('Failed to decode audio: ' + error.message));
                     }
                 } catch (error) {
                     console.error('Compression error:', error);
-                    clearTimeout(timeout);
                     reject(error);
                 }
             };
-            reader.onerror = (error) => {
-                console.error('FileReader error:', error);
-                clearTimeout(timeout);
-                reject(new Error('Failed to read file: ' + error.message));
+            
+            reader.onerror = () => {
+                reject(new Error('Failed to read file'));
             };
+            
             reader.readAsArrayBuffer(file);
         });
     }

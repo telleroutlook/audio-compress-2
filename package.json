@@ -13,10 +13,10 @@
   "license": "ISC",
   "type": "module",
   "devDependencies": {
-    "vite": "^5.0.0",
+    "vite": "^6.3.5",
     "vite-plugin-commonjs": "^0.10.4"
   },
   "dependencies": {
-    "lamejs": "^1.2.1"
+    "lamejs": "1.2.0"
   }
 }
