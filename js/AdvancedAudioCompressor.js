@@ -31,22 +31,26 @@ class AdvancedAudioCompressor {
     
     async initLamejs() {
         try {
-            // Try different import methods
+            // 优先使用全局 lamejs
             if (typeof window !== 'undefined' && window.lamejs) {
                 this.lamejs = window.lamejs;
-            } else {
-                // Try dynamic import with different approaches
-                try {
-                    const lamejsModule = await import('https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.0/lame.min.js');
-                    this.lamejs = lamejsModule.default || lamejsModule;
-                } catch (error) {
-                    // Fallback to global lamejs if available
-                    if (typeof lamejs !== 'undefined') {
-                        this.lamejs = lamejs;
-                    } else {
-                        throw new Error('lamejs library not available');
-                    }
-                }
+                console.log('Using global lamejs');
+                return;
+            }
+
+            // 如果全局没有，尝试从本地加载
+            try {
+                const lamejsModule = await import('./lame.min.js');
+                this.lamejs = lamejsModule.default || lamejsModule;
+                console.log('Using local lamejs');
+            } catch (error) {
+                console.error('Failed to load local lamejs:', error);
+                throw new Error('Failed to load lamejs library');
+            }
+            
+            // 验证 lamejs 是否正确加载
+            if (!this.lamejs || !this.lamejs.Mp3Encoder) {
+                throw new Error('lamejs library not properly initialized');
             }
             
             console.log('lamejs loaded successfully');
@@ -430,6 +434,73 @@ class AdvancedAudioCompressor {
         } else {
             return this.compressAudioAlternative(file);
         }
+    }
+    
+    async compressAudioWithLamejs(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const arrayBuffer = e.target.result;
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+
+                    // Get audio data
+                    const channels = audioBuffer.numberOfChannels;
+                    const sampleRate = audioBuffer.sampleRate;
+                    const samples = audioBuffer.getChannelData(0); // Get first channel
+
+                    // Create MP3 encoder
+                    const mp3encoder = new this.lamejs.Mp3Encoder(channels, sampleRate, this.settings.bitRate);
+                    const mp3Data = [];
+
+                    // Convert float32 to int16
+                    const sampleBlockSize = 1152; // Must be multiple of 576
+                    const mp3buf = new Int16Array(sampleBlockSize);
+
+                    for (let i = 0; i < samples.length; i += sampleBlockSize) {
+                        const sampleChunk = samples.slice(i, i + sampleBlockSize);
+                        
+                        // Convert to 16-bit PCM
+                        for (let j = 0; j < sampleChunk.length; j++) {
+                            mp3buf[j] = sampleChunk[j] * 0x7FFF;
+                        }
+
+                        // Encode to MP3
+                        const encoded = mp3encoder.encodeBuffer(mp3buf);
+                        if (encoded.length > 0) {
+                            mp3Data.push(encoded);
+                        }
+                    }
+
+                    // Flush encoder
+                    const end = mp3encoder.flush();
+                    if (end.length > 0) {
+                        mp3Data.push(end);
+                    }
+
+                    // Create MP3 blob
+                    const mp3Blob = new Blob(mp3Data, { type: 'audio/mp3' });
+
+                    resolve({
+                        blob: mp3Blob,
+                        size: mp3Blob.size,
+                        type: 'audio/mp3',
+                        name: file.name.replace(/\.[^/.]+$/, '.mp3'),
+                        originalSize: file.size,
+                        duration: audioBuffer.duration,
+                        sampleRate: sampleRate,
+                        channels: channels
+                    });
+
+                } catch (error) {
+                    reject(error);
+                }
+            };
+
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsArrayBuffer(file);
+        });
     }
     
     // Alternative compression method without lamejs
