@@ -38,19 +38,26 @@ class AdvancedAudioCompressor {
                 return;
             }
 
-            // 如果全局没有，尝试从本地加载
+            // 如果全局没有，尝试动态导入
             try {
-                const lamejsModule = await import('./lame.min.js');
+                const lamejsModule = await import('lamejs');
                 this.lamejs = lamejsModule.default || lamejsModule;
-                console.log('Using local lamejs');
+                console.log('Using imported lamejs');
             } catch (error) {
-                console.error('Failed to load local lamejs:', error);
-                throw new Error('Failed to load lamejs library');
+                console.warn('Failed to import lamejs module:', error);
+                
+                // 最后尝试从 CDN 加载的全局变量
+                if (typeof lamejs !== 'undefined') {
+                    this.lamejs = lamejs;
+                    console.log('Using CDN lamejs');
+                } else {
+                    throw new Error('lamejs library not available');
+                }
             }
             
             // 验证 lamejs 是否正确加载
-            if (!this.lamejs || !this.lamejs.Mp3Encoder) {
-                throw new Error('lamejs library not properly initialized');
+            if (!this.lamejs || typeof this.lamejs.Mp3Encoder !== 'function') {
+                throw new Error('lamejs Mp3Encoder not available');
             }
             
             console.log('lamejs loaded successfully');
@@ -367,10 +374,12 @@ class AdvancedAudioCompressor {
         this.progressSection.style.display = 'block';
         this.convertBtn.disabled = true;
         this.compressedResults = [];
+        this.isProcessing = true;
         
         const startTime = Date.now();
         let totalSaved = 0;
         let totalOriginalSize = 0;
+        let successCount = 0;
         
         try {
             for (let i = 0; i < this.selectedFiles.length; i++) {
@@ -383,6 +392,17 @@ class AdvancedAudioCompressor {
                 
                 try {
                     console.log(`Starting compression for file ${i + 1}/${this.selectedFiles.length}:`, file.name);
+                    
+                    // 检查文件类型
+                    if (!file.type.startsWith('audio/')) {
+                        throw new Error('Invalid file type. Only audio files are supported.');
+                    }
+                    
+                    // 检查文件大小
+                    if (file.size > 100 * 1024 * 1024) { // 100MB limit
+                        throw new Error('File too large. Maximum size is 100MB.');
+                    }
+                    
                     const result = await this.compressAudio(file);
                     console.log('Compression completed for:', file.name, result);
                     
@@ -390,8 +410,9 @@ class AdvancedAudioCompressor {
                     this.updatePreview(file, result);
                     totalSaved += (file.size - result.size);
                     totalOriginalSize += file.size;
+                    successCount++;
                     
-                    // Save to history
+                    // 保存到历史记录
                     this.compressionHistory.push({
                         timestamp: new Date().toISOString(),
                         originalFile: file.name,
@@ -404,7 +425,7 @@ class AdvancedAudioCompressor {
                 } catch (error) {
                     console.error(`Error processing ${file.name}:`, error);
                     this.showStatus(`Error processing ${file.name}: ${error.message}`, 'error');
-                    // Continue with next file instead of stopping completely
+                    // 继续处理下一个文件
                     continue;
                 }
             }
@@ -412,10 +433,10 @@ class AdvancedAudioCompressor {
             const endTime = Date.now();
             const processingTime = ((endTime - startTime) / 1000).toFixed(1);
             
-            if (this.compressedResults.length > 0) {
-                this.showCompressionSummary(this.compressedResults.length, totalSaved, totalOriginalSize, processingTime);
+            if (successCount > 0) {
+                this.showCompressionSummary(successCount, totalSaved, totalOriginalSize, processingTime);
                 this.showResults();
-                this.showStatus(`Successfully compressed ${this.compressedResults.length} files`, 'success');
+                this.showStatus(`Successfully compressed ${successCount} out of ${this.selectedFiles.length} files`, 'success');
             } else {
                 this.showStatus('No files were successfully compressed', 'error');
             }
@@ -425,6 +446,7 @@ class AdvancedAudioCompressor {
         } finally {
             this.progressSection.style.display = 'none';
             this.convertBtn.disabled = false;
+            this.isProcessing = false;
         }
     }
     
@@ -443,43 +465,95 @@ class AdvancedAudioCompressor {
                 try {
                     const arrayBuffer = e.target.result;
                     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    
+                    // 确保 audioContext 处于运行状态
+                    if (audioContext.state === 'suspended') {
+                        await audioContext.resume();
+                    }
+                    
                     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
 
-                    // Get audio data
+                    // 获取音频数据
                     const channels = audioBuffer.numberOfChannels;
                     const sampleRate = audioBuffer.sampleRate;
-                    const samples = audioBuffer.getChannelData(0); // Get first channel
+                    const length = audioBuffer.length;
 
-                    // Create MP3 encoder
-                    const mp3encoder = new this.lamejs.Mp3Encoder(channels, sampleRate, this.settings.bitRate);
+                    // 验证 lamejs 是否可用
+                    if (!this.lamejs || typeof this.lamejs.Mp3Encoder !== 'function') {
+                        throw new Error('lamejs Mp3Encoder not available');
+                    }
+
+                    // 创建 MP3 编码器
+                    const mp3encoder = new this.lamejs.Mp3Encoder(
+                        channels, 
+                        sampleRate, 
+                        this.settings.bitRate
+                    );
+                    
+                    if (!mp3encoder) {
+                        throw new Error('Failed to create MP3 encoder');
+                    }
+
                     const mp3Data = [];
+                    const sampleBlockSize = 1152; // LAME 要求的块大小
 
-                    // Convert float32 to int16
-                    const sampleBlockSize = 1152; // Must be multiple of 576
-                    const mp3buf = new Int16Array(sampleBlockSize);
-
-                    for (let i = 0; i < samples.length; i += sampleBlockSize) {
-                        const sampleChunk = samples.slice(i, i + sampleBlockSize);
+                    // 处理每个声道
+                    if (channels === 1) {
+                        // 单声道处理
+                        const samples = audioBuffer.getChannelData(0);
+                        const int16Array = new Int16Array(samples.length);
                         
-                        // Convert to 16-bit PCM
-                        for (let j = 0; j < sampleChunk.length; j++) {
-                            mp3buf[j] = sampleChunk[j] * 0x7FFF;
+                        // 转换为 16-bit PCM
+                        for (let i = 0; i < samples.length; i++) {
+                            const sample = Math.max(-1, Math.min(1, samples[i]));
+                            int16Array[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
                         }
 
-                        // Encode to MP3
-                        const encoded = mp3encoder.encodeBuffer(mp3buf);
-                        if (encoded.length > 0) {
-                            mp3Data.push(encoded);
+                        // 分块编码
+                        for (let i = 0; i < int16Array.length; i += sampleBlockSize) {
+                            const chunk = int16Array.slice(i, i + sampleBlockSize);
+                            const mp3buf = mp3encoder.encodeBuffer(chunk);
+                            if (mp3buf.length > 0) {
+                                mp3Data.push(mp3buf);
+                            }
+                        }
+                    } else {
+                        // 立体声处理
+                        const leftChannel = audioBuffer.getChannelData(0);
+                        const rightChannel = audioBuffer.getChannelData(1);
+                        const leftInt16 = new Int16Array(leftChannel.length);
+                        const rightInt16 = new Int16Array(rightChannel.length);
+                        
+                        // 转换为 16-bit PCM
+                        for (let i = 0; i < leftChannel.length; i++) {
+                            const leftSample = Math.max(-1, Math.min(1, leftChannel[i]));
+                            const rightSample = Math.max(-1, Math.min(1, rightChannel[i]));
+                            leftInt16[i] = leftSample < 0 ? leftSample * 0x8000 : leftSample * 0x7FFF;
+                            rightInt16[i] = rightSample < 0 ? rightSample * 0x8000 : rightSample * 0x7FFF;
+                        }
+
+                        // 分块编码
+                        for (let i = 0; i < leftInt16.length; i += sampleBlockSize) {
+                            const leftChunk = leftInt16.slice(i, i + sampleBlockSize);
+                            const rightChunk = rightInt16.slice(i, i + sampleBlockSize);
+                            const mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
+                            if (mp3buf.length > 0) {
+                                mp3Data.push(mp3buf);
+                            }
                         }
                     }
 
-                    // Flush encoder
-                    const end = mp3encoder.flush();
-                    if (end.length > 0) {
-                        mp3Data.push(end);
+                    // 完成编码
+                    const finalMp3buf = mp3encoder.flush();
+                    if (finalMp3buf.length > 0) {
+                        mp3Data.push(finalMp3buf);
                     }
 
-                    // Create MP3 blob
+                    if (mp3Data.length === 0) {
+                        throw new Error('No MP3 data generated');
+                    }
+
+                    // 创建 MP3 blob
                     const mp3Blob = new Blob(mp3Data, { type: 'audio/mp3' });
 
                     resolve({
@@ -494,7 +568,8 @@ class AdvancedAudioCompressor {
                     });
 
                 } catch (error) {
-                    reject(error);
+                    console.error('Error in compressAudioWithLamejs:', error);
+                    reject(new Error(`Audio compression failed: ${error.message}`));
                 }
             };
 
@@ -512,55 +587,68 @@ class AdvancedAudioCompressor {
                     const arrayBuffer = e.target.result;
                     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     
+                    // 确保 audioContext 处于运行状态
+                    if (audioContext.state === 'suspended') {
+                        await audioContext.resume();
+                    }
+                    
                     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
                     
-                    // Calculate compression parameters
+                    // 计算压缩参数
                     let targetSampleRate = audioBuffer.sampleRate;
                     let targetChannels = audioBuffer.numberOfChannels;
                     let targetBitDepth = 16;
                     
-                    // Apply compression settings
-                    if (this.settings.mode === 'aggressive') {
-                        targetSampleRate = Math.min(22050, targetSampleRate);
-                        targetChannels = 1;
-                        targetBitDepth = 8;
-                    } else if (this.settings.mode === 'maximum') {
-                        targetSampleRate = Math.min(16000, targetSampleRate);
-                        targetChannels = 1;
-                        targetBitDepth = 8;
-                    } else {
-                        targetSampleRate = Math.min(32000, targetSampleRate);
+                    // 根据压缩模式调整参数
+                    switch (this.settings.mode) {
+                        case 'aggressive':
+                            targetSampleRate = Math.min(22050, targetSampleRate);
+                            targetChannels = 1;
+                            targetBitDepth = 8;
+                            break;
+                        case 'maximum':
+                            targetSampleRate = Math.min(16000, targetSampleRate);
+                            targetChannels = 1;
+                            targetBitDepth = 8;
+                            break;
+                        default: // balanced
+                            targetSampleRate = Math.min(32000, targetSampleRate);
+                            break;
                     }
                     
-                    // Create compressed buffer
+                    // 创建压缩后的缓冲区
+                    const compressedLength = Math.floor(audioBuffer.duration * targetSampleRate);
                     const compressedBuffer = audioContext.createBuffer(
                         targetChannels,
-                        Math.floor(audioBuffer.duration * targetSampleRate),
+                        compressedLength,
                         targetSampleRate
                     );
                     
-                    // Resample and compress
+                    // 重采样和压缩
                     for (let channel = 0; channel < targetChannels; channel++) {
                         const sourceChannel = Math.min(channel, audioBuffer.numberOfChannels - 1);
                         const inputData = audioBuffer.getChannelData(sourceChannel);
                         const outputData = compressedBuffer.getChannelData(channel);
+                        const ratio = audioBuffer.sampleRate / targetSampleRate;
                         
-                        for (let i = 0; i < compressedBuffer.length; i++) {
-                            const sourceIndex = Math.floor(i * audioBuffer.sampleRate / targetSampleRate);
+                        for (let i = 0; i < compressedLength; i++) {
+                            const sourceIndex = Math.floor(i * ratio);
                             let sample = inputData[sourceIndex] || 0;
                             
-                            // Apply bit depth compression
+                            // 应用位深度压缩
                             if (targetBitDepth === 8) {
                                 sample = Math.round(sample * 127) / 127;
                             } else {
                                 sample = Math.round(sample * 32767) / 32767;
                             }
                             
+                            // 限制范围
+                            sample = Math.max(-1, Math.min(1, sample));
                             outputData[i] = sample;
                         }
                     }
                     
-                    // Export as WAV (more compatible than MP3 without lamejs)
+                    // 导出为 WAV
                     const wavBlob = await this.exportToWav(compressedBuffer);
                     
                     resolve({
@@ -575,7 +663,8 @@ class AdvancedAudioCompressor {
                     });
                     
                 } catch (error) {
-                    reject(error);
+                    console.error('Error in compressAudioAlternative:', error);
+                    reject(new Error(`Alternative compression failed: ${error.message}`));
                 }
             };
             
