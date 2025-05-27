@@ -1,22 +1,28 @@
 {
   "name": "audio-compress",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Advanced Audio Compressor built with Vue 3",
+  "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vue-tsc && vite build",
     "preview": "vite preview"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
-  "devDependencies": {
-    "vite": "^5.1.4",
-    "vite-plugin-commonjs": "^0.10.4"
-  },
   "dependencies": {
-    "lamejs": "1.2.0"
+    "@vueuse/core": "^10.7.2",
+    "file-saver": "^2.0.5",
+    "id3js": "^1.1.3",
+    "jszip": "^3.10.1",
+    "vue": "^3.4.15"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^28.0.3",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.4",
+    "vue-tsc": "^2.2.10"
   }
 }

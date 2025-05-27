@@ -18,54 +18,13 @@ class AdvancedAudioCompressor {
         this.compressionHistory = [];
         this.audioEditor = new AudioEditor();
         this.batchRenamer = new BatchRenamer();
-        this.lamejs = null; // 初始化 lamejs 为 null
         this.initializeElements();
         this.bindEvents();
         this.loadSettings();
-        this.initLamejs(); // 添加初始化 lamejs 的调用
         
         // 确保默认选择正确的按钮
         document.querySelector('.format-btn[data-format="mp3"]').classList.add('active');
         document.querySelector('.format-btn[data-mode="maximum"]').classList.add('active');
-    }
-    
-    async initLamejs() {
-        try {
-            // 优先使用全局 lamejs
-            if (typeof window !== 'undefined' && window.lamejs) {
-                this.lamejs = window.lamejs;
-                console.log('Using global lamejs');
-                return;
-            }
-
-            // 如果全局没有，尝试动态导入
-            try {
-                const lamejsModule = await import('lamejs');
-                this.lamejs = lamejsModule.default || lamejsModule;
-                console.log('Using imported lamejs');
-            } catch (error) {
-                console.warn('Failed to import lamejs module:', error);
-                
-                // 最后尝试从 CDN 加载的全局变量
-                if (typeof lamejs !== 'undefined') {
-                    this.lamejs = lamejs;
-                    console.log('Using CDN lamejs');
-                } else {
-                    throw new Error('lamejs library not available');
-                }
-            }
-            
-            // 验证 lamejs 是否正确加载
-            if (!this.lamejs || typeof this.lamejs.Mp3Encoder !== 'function') {
-                throw new Error('lamejs Mp3Encoder not available');
-            }
-            
-            console.log('lamejs loaded successfully');
-        } catch (error) {
-            console.error('Failed to load lamejs:', error);
-            this.showStatus('Audio compression library failed to load. Using alternative method.', 'warning');
-            this.lamejs = null;
-        }
     }
     
     initializeElements() {
@@ -251,10 +210,12 @@ class AdvancedAudioCompressor {
         this.updateFileList();
         this.showStatus(`${this.selectedFiles.length} files selected`, 'success');
         
-        // 使用 setTimeout 确保在 DOM 更新后滚动到控制面板
-        setTimeout(() => {
-            this.smoothScrollTo(this.controlsPanel);
-        }, 0);
+        // 等待 DOM 更新后滚动
+        this.$nextTick(() => {
+            if (this.controlsPanel) {
+                this.smoothScrollTo(this.controlsPanel);
+            }
+        });
     }
     
     updateFileList() {
@@ -333,30 +294,34 @@ class AdvancedAudioCompressor {
         if (!element) return;
         
         try {
-            // 计算目标位置，考虑页面顶部偏移
-            const targetPosition = element.getBoundingClientRect().top + window.pageYOffset - 100; // 增加顶部偏移
-            const startPosition = window.pageYOffset;
-            const distance = targetPosition - startPosition;
-            let startTime = null;
-
-            const easeInOutCubic = (t) => {
-                return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-            };
-
-            const animation = (currentTime) => {
-                if (startTime === null) startTime = currentTime;
-                const timeElapsed = currentTime - startTime;
-                const progress = Math.min(timeElapsed / duration, 1);
-                const easeProgress = easeInOutCubic(progress);
-                
-                window.scrollTo(0, startPosition + distance * easeProgress);
-                
-                if (timeElapsed < duration) {
-                    requestAnimationFrame(animation);
-                }
-            };
-
-            requestAnimationFrame(animation);
+            // 使用 IntersectionObserver 确保元素已完全渲染
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        // 元素可见时执行滚动
+                        const targetPosition = element.getBoundingClientRect().top + window.pageYOffset - 100;
+                        window.scrollTo({
+                            top: targetPosition,
+                            behavior: 'smooth'
+                        });
+                        observer.disconnect();
+                    }
+                });
+            }, {
+                threshold: 0.1
+            });
+            
+            observer.observe(element);
+            
+            // 设置超时，如果元素长时间不可见，强制滚动
+            setTimeout(() => {
+                observer.disconnect();
+                const targetPosition = element.getBoundingClientRect().top + window.pageYOffset - 100;
+                window.scrollTo({
+                    top: targetPosition,
+                    behavior: 'smooth'
+                });
+            }, 1000);
         } catch (error) {
             console.error('Smooth scroll failed:', error);
             // 回退到简单滚动
@@ -464,195 +429,36 @@ class AdvancedAudioCompressor {
     }
     
     async compressAudio(file, progressCallback) {
-        if (!this.lamejs) {
-            throw new Error('lamejs library not available');
+        try {
+            const worker = new Worker(new URL('../src/workers/audioCompressionWorker.js', import.meta.url));
+            
+            return new Promise((resolve, reject) => {
+                worker.onmessage = (e) => {
+                    if (e.data.type === 'progress') {
+                        progressCallback(e.data.progress);
+                    } else if (e.data.type === 'complete') {
+                        resolve(e.data.result);
+                        worker.terminate();
+                    } else if (e.data.type === 'error') {
+                        reject(new Error(e.data.error));
+                        worker.terminate();
+                    }
+                };
+
+                worker.onerror = (error) => {
+                    reject(error);
+                    worker.terminate();
+                };
+
+                worker.postMessage({
+                    file,
+                    settings: this.settings
+                });
+            });
+        } catch (error) {
+            console.error('Error in compressAudio:', error);
+            throw error;
         }
-        return this.compressAudioWithLamejs(file, progressCallback);
-    }
-    
-    async compressAudioWithLamejs(file, progressCallback) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                try {
-                    // 初始化阶段
-                    if (progressCallback) progressCallback(5);
-                    await new Promise(resolve => setTimeout(resolve, 100)); // 添加小延迟使进度更平滑
-                    
-                    const arrayBuffer = e.target.result;
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    
-                    if (progressCallback) progressCallback(10);
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                    
-                    // 确保 audioContext 处于运行状态
-                    if (audioContext.state === 'suspended') {
-                        await audioContext.resume();
-                    }
-                    
-                    if (progressCallback) progressCallback(15);
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                    
-                    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
-
-                    if (progressCallback) progressCallback(25);
-                    await new Promise(resolve => setTimeout(resolve, 100));
-
-                    // 获取音频数据
-                    const channels = audioBuffer.numberOfChannels;
-                    const sampleRate = audioBuffer.sampleRate;
-                    const length = audioBuffer.length;
-
-                    // 验证 lamejs 是否可用
-                    if (!this.lamejs || typeof this.lamejs.Mp3Encoder !== 'function') {
-                        throw new Error('lamejs Mp3Encoder not available');
-                    }
-
-                    if (progressCallback) progressCallback(35);
-                    await new Promise(resolve => setTimeout(resolve, 100));
-
-                    // 创建 MP3 编码器
-                    const mp3encoder = new this.lamejs.Mp3Encoder(
-                        channels, 
-                        sampleRate, 
-                        this.settings.bitRate
-                    );
-                    
-                    if (!mp3encoder) {
-                        throw new Error('Failed to create MP3 encoder');
-                    }
-
-                    const mp3Data = [];
-                    const sampleBlockSize = 1152; // LAME 要求的块大小
-
-                    if (progressCallback) progressCallback(45);
-                    await new Promise(resolve => setTimeout(resolve, 100));
-
-                    // 处理每个声道
-                    if (channels === 1) {
-                        // 单声道处理
-                        const samples = audioBuffer.getChannelData(0);
-                        const int16Array = new Int16Array(samples.length);
-                        
-                        // 转换为 16-bit PCM
-                        for (let i = 0; i < samples.length; i++) {
-                            const sample = Math.max(-1, Math.min(1, samples[i]));
-                            int16Array[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
-                        }
-
-                        if (progressCallback) progressCallback(55);
-                        await new Promise(resolve => setTimeout(resolve, 100));
-
-                        // 分块编码，并在过程中更新进度
-                        const totalBlocks = Math.ceil(int16Array.length / sampleBlockSize);
-                        let processedBlocks = 0;
-                        
-                        for (let i = 0; i < int16Array.length; i += sampleBlockSize) {
-                            const chunk = int16Array.slice(i, i + sampleBlockSize);
-                            const mp3buf = mp3encoder.encodeBuffer(chunk);
-                            if (mp3buf.length > 0) {
-                                mp3Data.push(mp3buf);
-                            }
-                            
-                            processedBlocks++;
-                            // 更新进度 (55% 到 85%)
-                            if (progressCallback && totalBlocks > 0) {
-                                const blockProgress = processedBlocks / totalBlocks;
-                                const currentProgress = 55 + (blockProgress * 30);
-                                progressCallback(Math.min(currentProgress, 85));
-                                
-                                // 每处理一定数量的块后添加小延迟，使进度更新更平滑
-                                if (processedBlocks % 10 === 0) {
-                                    await new Promise(resolve => setTimeout(resolve, 10));
-                                }
-                            }
-                        }
-                    } else {
-                        // 立体声处理
-                        const leftChannel = audioBuffer.getChannelData(0);
-                        const rightChannel = audioBuffer.getChannelData(1);
-                        const leftInt16 = new Int16Array(leftChannel.length);
-                        const rightInt16 = new Int16Array(rightChannel.length);
-                        
-                        // 转换为 16-bit PCM
-                        for (let i = 0; i < leftChannel.length; i++) {
-                            const leftSample = Math.max(-1, Math.min(1, leftChannel[i]));
-                            const rightSample = Math.max(-1, Math.min(1, rightChannel[i]));
-                            leftInt16[i] = leftSample < 0 ? leftSample * 0x8000 : leftSample * 0x7FFF;
-                            rightInt16[i] = rightSample < 0 ? rightSample * 0x8000 : rightSample * 0x7FFF;
-                        }
-
-                        if (progressCallback) progressCallback(55);
-                        await new Promise(resolve => setTimeout(resolve, 100));
-
-                        // 分块编码
-                        const totalBlocks = Math.ceil(leftInt16.length / sampleBlockSize);
-                        let processedBlocks = 0;
-                        
-                        for (let i = 0; i < leftInt16.length; i += sampleBlockSize) {
-                            const leftChunk = leftInt16.slice(i, i + sampleBlockSize);
-                            const rightChunk = rightInt16.slice(i, i + sampleBlockSize);
-                            const mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
-                            if (mp3buf.length > 0) {
-                                mp3Data.push(mp3buf);
-                            }
-                            
-                            processedBlocks++;
-                            // 更新进度 (55% 到 85%)
-                            if (progressCallback && totalBlocks > 0) {
-                                const blockProgress = processedBlocks / totalBlocks;
-                                const currentProgress = 55 + (blockProgress * 30);
-                                progressCallback(Math.min(currentProgress, 85));
-                                
-                                // 每处理一定数量的块后添加小延迟，使进度更新更平滑
-                                if (processedBlocks % 10 === 0) {
-                                    await new Promise(resolve => setTimeout(resolve, 10));
-                                }
-                            }
-                        }
-                    }
-
-                    if (progressCallback) progressCallback(90);
-                    await new Promise(resolve => setTimeout(resolve, 100));
-
-                    // 完成编码
-                    const finalMp3buf = mp3encoder.flush();
-                    if (finalMp3buf.length > 0) {
-                        mp3Data.push(finalMp3buf);
-                    }
-
-                    if (mp3Data.length === 0) {
-                        throw new Error('No MP3 data generated');
-                    }
-
-                    if (progressCallback) progressCallback(95);
-                    await new Promise(resolve => setTimeout(resolve, 100));
-
-                    // 创建 MP3 blob
-                    const mp3Blob = new Blob(mp3Data, { type: 'audio/mp3' });
-
-                    if (progressCallback) progressCallback(100);
-
-                    resolve({
-                        blob: mp3Blob,
-                        size: mp3Blob.size,
-                        type: 'audio/mp3',
-                        name: file.name.replace(/\.[^/.]+$/, '.mp3'),
-                        originalSize: file.size,
-                        duration: audioBuffer.duration,
-                        sampleRate: sampleRate,
-                        channels: channels
-                    });
-
-                } catch (error) {
-                    console.error('Error in compressAudioWithLamejs:', error);
-                    reject(new Error(`Audio compression failed: ${error.message}`));
-                }
-            };
-
-            reader.onerror = () => reject(new Error('Failed to read file'));
-            reader.readAsArrayBuffer(file);
-        });
     }
     
     showResults() {
@@ -666,8 +472,8 @@ class AdvancedAudioCompressor {
             this.resultsContainer.appendChild(resultItem);
         });
 
-        // 确保在DOM更新后滚动到结果区域
-        requestAnimationFrame(() => {
+        // 等待 DOM 更新后滚动
+        this.$nextTick(() => {
             if (this.resultsSection) {
                 this.smoothScrollTo(this.resultsSection);
             }
@@ -710,12 +516,12 @@ class AdvancedAudioCompressor {
             elements.processingTime.textContent = processingTime + 's';
         }
 
-        // 延迟滚动以确保DOM更新完成
-        setTimeout(() => {
+        // 等待 DOM 更新后滚动
+        this.$nextTick(() => {
             if (this.summaryStats) {
                 this.smoothScrollTo(this.summaryStats);
             }
-        }, 100);
+        });
     }
     
     createResultItem(result, index) {
@@ -883,13 +689,27 @@ class AdvancedAudioCompressor {
             .reduce((sum, file) => sum + (file.size / totalSize) * 100, 0);
         
         // 计算当前文件的进度贡献
-        const currentFileProgress = fileProgress * fileWeight;
+        let currentFileProgress;
+        
+        // 根据不同的进度阶段使用不同的计算方式
+        if (fileProgress <= 25) {
+            // 初始化和解码阶段 (0-25%)
+            currentFileProgress = fileProgress * fileWeight;
+        } else if (fileProgress <= 95) {
+            // 编码阶段 (25-95%)
+            // 确保进度在编码阶段缓慢增长
+            const encodingProgress = (fileProgress - 25) * (70 / 70); // 将25-95映射到25-95
+            currentFileProgress = (25 + encodingProgress) * fileWeight;
+        } else {
+            // 完成阶段 (95-100%)
+            currentFileProgress = 95 * fileWeight + (fileProgress - 95) * fileWeight;
+        }
         
         // 总进度 = 已完成文件的进度 + 当前文件的进度
         const totalProgress = completedProgress + currentFileProgress;
         
         // 添加平滑过渡效果
-        this.progressFill.style.transition = 'width 0.3s ease-in-out';
+        this.progressFill.style.transition = 'width 0.5s ease-out';
         this.progressFill.style.width = `${Math.min(totalProgress, 100)}%`;
         
         // 更新进度文本，添加更多详细信息
