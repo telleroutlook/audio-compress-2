@@ -3,38 +3,51 @@ import type { Settings, CompressedResult } from '../types';
 
 export function useAudioCompressor() {
   const isBrowser = typeof window !== 'undefined';
+  console.log('useAudioCompressor initialized, isBrowser:', isBrowser);
 
   const compressAudio = async (
     file: File, 
     settings: Settings,
     onProgress: (progress: number) => void
   ): Promise<CompressedResult> => {
+    console.group('Audio Compression');
+    console.log('Starting compression for file:', file.name);
+    console.log('Settings:', settings);
+
     if (!isBrowser) {
+      console.error('Audio compression attempted in non-browser environment');
       throw new Error('Audio compression is only available in browser environment');
     }
 
     return new Promise(async (resolve, reject) => {
       try {
         onProgress(0);
+        console.log('Initial progress set to 0%');
         
         let worker: Worker;
         try {
+          console.log('Initializing audio compression worker');
           const workerUrl = new URL('../workers/audioCompressionWorker.js', import.meta.url);
           worker = new Worker(workerUrl);
+          console.log('Worker initialized successfully');
         } catch (err) {
+          console.error('Failed to initialize worker:', err);
           reject(new Error('Failed to initialize audio compression worker'));
           return;
         }
         
         worker.onmessage = (e) => {
           const data = e.data;
+          console.log('Worker message received:', data.type);
           
           switch (data.type) {
             case 'progress':
+              console.log('Progress update:', data.progress + '%');
               onProgress(data.progress);
               break;
               
             case 'complete':
+              console.log('Compression complete, finalizing result');
               onProgress(100);
               resolve({
                 name: file.name,
@@ -52,6 +65,7 @@ export function useAudioCompressor() {
               break;
               
             case 'error':
+              console.error('Worker reported error:', data.error);
               reject(new Error(data.error));
               worker.terminate();
               break;
@@ -63,20 +77,31 @@ export function useAudioCompressor() {
         };
         
         worker.onerror = (error) => {
+          console.error('Worker error occurred:', error);
           reject(new Error(`Worker error: ${error.message}`));
           worker.terminate();
         };
         
+        console.log('Initializing AudioContext');
         const audioContext = new AudioContext();
+        console.log('Reading file as ArrayBuffer');
         const arrayBuffer = await file.arrayBuffer();
+        console.log('Decoding audio data');
         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
         
         onProgress(25);
+        console.log('Audio data decoded, progress at 25%');
         
         const leftChannel = audioBuffer.getChannelData(0);
         const rightChannel = audioBuffer.numberOfChannels > 1 ? 
           audioBuffer.getChannelData(1) : 
           leftChannel;
+        
+        console.log('Audio channels processed:', {
+          numberOfChannels: audioBuffer.numberOfChannels,
+          sampleRate: audioBuffer.sampleRate,
+          duration: audioBuffer.duration
+        });
         
         worker.postMessage({
           leftChannel,
@@ -90,7 +115,10 @@ export function useAudioCompressor() {
           }
         });
         
+        console.groupEnd();
       } catch (error) {
+        console.error('Compression process failed:', error);
+        console.groupEnd();
         reject(error);
       }
     });

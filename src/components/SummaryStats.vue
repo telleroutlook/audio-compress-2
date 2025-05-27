@@ -10,13 +10,13 @@
       </div>
       <div class="summary-item">
         <span class="summary-value" id="avgCompression">
-          {{ stats.avgCompression }}%
+          {{ stats.avgCompression.toFixed(1) }}%
         </span>
         <div class="summary-label">Avg. Compression</div>
       </div>
       <div class="summary-item">
         <span class="summary-value" id="processingTime">
-          {{ stats.processingTime }}s
+          {{ stats.processingTime.toFixed(1) }}s
         </span>
         <div class="summary-label">Processing Time</div>
       </div>

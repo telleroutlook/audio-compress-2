@@ -783,6 +783,16 @@ h1 {
         transition-duration: 0.01ms !important;
         scroll-behavior: auto !important;
     }
+    
+    .progress-fill {
+        transition: none !important;
+    }
+    
+    .upload-area,
+    .format-btn,
+    .btn {
+        transition: none !important;
+    }
 }
 
 /* Add high contrast mode styles */

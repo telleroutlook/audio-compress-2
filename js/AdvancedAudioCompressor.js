@@ -18,13 +18,16 @@ class AdvancedAudioCompressor {
         this.compressionHistory = [];
         this.audioEditor = new AudioEditor();
         this.batchRenamer = new BatchRenamer();
+        
         this.initializeElements();
         this.bindEvents();
         this.loadSettings();
         
-        // 确保默认选择正确的按钮
-        document.querySelector('.format-btn[data-format="mp3"]').classList.add('active');
-        document.querySelector('.format-btn[data-mode="maximum"]').classList.add('active');
+        const formatBtn = document.querySelector('.format-btn[data-format="mp3"]');
+        const modeBtn = document.querySelector('.format-btn[data-mode="maximum"]');
+        
+        if (formatBtn) formatBtn.classList.add('active');
+        if (modeBtn) modeBtn.classList.add('active');
     }
     
     initializeElements() {
@@ -103,6 +106,8 @@ class AdvancedAudioCompressor {
     }
     
     bindEvents() {
+        if (!this.uploadArea || !this.fileInput) return;
+
         this.uploadArea.addEventListener('dragover', this.handleDragOver.bind(this));
         this.uploadArea.addEventListener('dragleave', this.handleDragLeave.bind(this));
         this.uploadArea.addEventListener('drop', this.handleDrop.bind(this));
@@ -114,18 +119,19 @@ class AdvancedAudioCompressor {
                 btn.classList.add('active');
                 this.settings.format = btn.dataset.format;
                 
-                // Update format description
                 const formatDesc = document.getElementById('formatDescription');
-                switch(btn.dataset.format) {
-                    case 'mp3':
-                        formatDesc.innerHTML = '<strong>MP3</strong>: Most popular format with good compression. Compatible with all devices.';
-                        break;
-                    case 'aac':
-                        formatDesc.innerHTML = '<strong>AAC</strong>: Better quality than MP3 at same bitrate. Used by Apple and YouTube.';
-                        break;
-                    case 'wav':
-                        formatDesc.innerHTML = '<strong>WAV</strong>: Uncompressed format with best quality but larger file size.';
-                        break;
+                if (formatDesc) {
+                    switch(btn.dataset.format) {
+                        case 'mp3':
+                            formatDesc.innerHTML = '<strong>MP3</strong>: Most popular format with good compression. Compatible with all devices.';
+                            break;
+                        case 'aac':
+                            formatDesc.innerHTML = '<strong>AAC</strong>: Better quality than MP3 at same bitrate. Used by Apple and YouTube.';
+                            break;
+                        case 'wav':
+                            formatDesc.innerHTML = '<strong>WAV</strong>: Uncompressed format with best quality but larger file size.';
+                            break;
+                    }
                 }
             });
         });
@@ -136,42 +142,61 @@ class AdvancedAudioCompressor {
                 btn.classList.add('active');
                 this.settings.mode = btn.dataset.mode;
                 
-                // Update mode description
                 const modeDesc = document.getElementById('modeDescription');
-                switch(btn.dataset.mode) {
-                    case 'balanced':
-                        modeDesc.innerHTML = '<strong>Balanced Mode</strong>: Good balance between quality and file size.';
-                        break;
-                    case 'aggressive':
-                        modeDesc.innerHTML = '<strong>Aggressive Mode</strong>: High compression for smaller files, some quality loss.';
-                        break;
-                    case 'maximum':
-                        modeDesc.innerHTML = '<strong>Maximum Mode</strong>: Maximum compression, prioritize file size over quality.';
-                        break;
+                if (modeDesc) {
+                    switch(btn.dataset.mode) {
+                        case 'balanced':
+                            modeDesc.innerHTML = '<strong>Balanced Mode</strong>: Good balance between quality and file size.';
+                            break;
+                        case 'aggressive':
+                            modeDesc.innerHTML = '<strong>Aggressive Mode</strong>: High compression for smaller files, some quality loss.';
+                            break;
+                        case 'maximum':
+                            modeDesc.innerHTML = '<strong>Maximum Mode</strong>: Maximum compression, prioritize file size over quality.';
+                            break;
+                    }
                 }
             });
         });
         
-        this.qualitySlider.addEventListener('input', (e) => {
-            this.settings.quality = parseFloat(e.target.value);
-            this.qualityValue.textContent = this.settings.quality;
-        });
+        if (this.qualitySlider) {
+            this.qualitySlider.addEventListener('input', (e) => {
+                this.settings.quality = parseFloat(e.target.value);
+                if (this.qualityValue) {
+                    this.qualityValue.textContent = this.settings.quality;
+                }
+            });
+        }
         
-        this.bitRateInput.addEventListener('input', (e) => {
-            this.settings.bitRate = parseInt(e.target.value) || 128;
-        });
+        if (this.bitRateInput) {
+            this.bitRateInput.addEventListener('input', (e) => {
+                this.settings.bitRate = parseInt(e.target.value) || 128;
+            });
+        }
         
-        this.sampleRateSelect.addEventListener('change', (e) => {
-            this.settings.sampleRate = parseInt(e.target.value) || 44100;
-        });
+        if (this.sampleRateSelect) {
+            this.sampleRateSelect.addEventListener('change', (e) => {
+                this.settings.sampleRate = parseInt(e.target.value) || 44100;
+            });
+        }
         
-        this.bitDepthSelect.addEventListener('change', (e) => {
-            this.settings.bitDepth = parseInt(e.target.value) || 16;
-        });
+        if (this.bitDepthSelect) {
+            this.bitDepthSelect.addEventListener('change', (e) => {
+                this.settings.bitDepth = parseInt(e.target.value) || 16;
+            });
+        }
         
-        this.convertBtn.addEventListener('click', this.startCompression.bind(this));
-        this.downloadAllBtn.addEventListener('click', this.downloadAll.bind(this));
-        this.clearBtn.addEventListener('click', this.clearAll.bind(this));
+        if (this.convertBtn) {
+            this.convertBtn.addEventListener('click', this.startCompression.bind(this));
+        }
+        
+        if (this.downloadAllBtn) {
+            this.downloadAllBtn.addEventListener('click', this.downloadAll.bind(this));
+        }
+        
+        if (this.clearBtn) {
+            this.clearBtn.addEventListener('click', this.clearAll.bind(this));
+        }
     }
     
     handleDragOver(e) {
@@ -210,71 +235,57 @@ class AdvancedAudioCompressor {
         this.updateFileList();
         this.showStatus(`${this.selectedFiles.length} files selected`, 'success');
         
-        // 等待 DOM 更新后滚动
-        this.$nextTick(() => {
-            if (this.controlsPanel) {
-                this.smoothScrollTo(this.controlsPanel);
-            }
-        });
+        if (this.controlsPanel) {
+            this.controlsPanel.style.display = 'block';
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    this.smoothScrollTo(this.controlsPanel);
+                });
+            });
+        }
     }
     
     updateFileList() {
         if (this.selectedFiles.length === 0) {
             this.fileList.style.display = 'none';
-            this.controlsPanel.style.display = 'none';
-            this.convertBtn.style.display = 'none';
             return;
         }
-
-        this.fileList.style.display = 'block';
-        this.controlsPanel.style.display = 'block';
-        this.convertBtn.style.display = 'block';
         
-        const container = document.getElementById('filesContainer');
-        container.innerHTML = '';
-
-        const fileList = document.createElement('div');
-        fileList.className = 'file-list-content';
-
-        this.selectedFiles.forEach(file => {
+        this.fileList.innerHTML = '';
+        this.fileList.style.display = 'block';
+        
+        const header = document.createElement('div');
+        header.className = 'file-list-header';
+        header.innerHTML = `
+            <h3>Selected Files</h3>
+            <div class="file-stats">${this.selectedFiles.length} files selected</div>
+        `;
+        this.fileList.appendChild(header);
+        
+        const listContainer = document.createElement('div');
+        listContainer.className = 'file-items';
+        
+        this.selectedFiles.forEach((file, index) => {
             const fileItem = document.createElement('div');
             fileItem.className = 'file-item';
-            
-            const fileInfo = document.createElement('div');
-            fileInfo.className = 'file-info';
-            
-            const fileName = document.createElement('span');
-            fileName.className = 'file-name';
-            fileName.textContent = file.name;
-            
-            const fileSize = document.createElement('span');
-            fileSize.className = 'file-size';
-            fileSize.textContent = this.formatFileSize(file.size);
-            
-            fileInfo.appendChild(fileName);
-            fileInfo.appendChild(fileSize);
-            
-            const removeBtn = document.createElement('button');
-            removeBtn.className = 'remove-file';
-            removeBtn.textContent = '×';
-            removeBtn.onclick = () => {
-                const index = this.selectedFiles.indexOf(file);
-                if (index > -1) {
-                    this.selectedFiles.splice(index, 1);
-                    this.updateFileList();
-                }
-            };
-            
-            fileItem.appendChild(fileInfo);
-            fileItem.appendChild(removeBtn);
-            fileList.appendChild(fileItem);
+            fileItem.innerHTML = `
+                <div class="file-info">
+                    <div class="file-name">${file.name}</div>
+                    <div class="file-size">${this.formatFileSize(file.size)}</div>
+                </div>
+                <button class="remove-file" data-index="${index}">×</button>
+            `;
+            listContainer.appendChild(fileItem);
         });
-
-        container.appendChild(fileList);
-        document.getElementById('fileCount').textContent = this.selectedFiles.length;
         
-        const totalSize = this.selectedFiles.reduce((sum, file) => sum + file.size, 0);
-        document.getElementById('totalSize').textContent = this.formatFileSize(totalSize);
+        this.fileList.appendChild(listContainer);
+        
+        document.querySelectorAll('.remove-file').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const index = parseInt(e.currentTarget.dataset.index);
+                this.removeFile(index);
+            });
+        });
     }
     
     formatFileSize(bytes) {
@@ -282,7 +293,7 @@ class AdvancedAudioCompressor {
         const k = 1024;
         const sizes = ['Bytes', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
     
     showStatus(message, type = 'info') {
@@ -290,43 +301,47 @@ class AdvancedAudioCompressor {
         this.statusMessage.textContent = message;
     }
     
-    smoothScrollTo(element, duration = 1000) {
+    smoothScrollTo(element) {
         if (!element) return;
-        
-        try {
-            // 使用 IntersectionObserver 确保元素已完全渲染
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        // 元素可见时执行滚动
-                        const targetPosition = element.getBoundingClientRect().top + window.pageYOffset - 100;
+
+        const scroll = () => {
+            const supportsSmoothScroll = 'scrollBehavior' in document.documentElement.style;
+            const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            
+            if (prefersReducedMotion) {
+                element.scrollIntoView();
+                return;
+            }
+
+            try {
+                const rect = element.getBoundingClientRect();
+                const isVisible = rect.top >= 0 && rect.left >= 0 && 
+                                 rect.bottom <= window.innerHeight && 
+                                 rect.right <= window.innerWidth;
+                
+                if (!isVisible) {
+                    if (supportsSmoothScroll) {
+                        element.scrollIntoView({ 
+                            behavior: 'smooth', 
+                            block: 'start',
+                            inline: 'nearest'
+                        });
+                    } else {
+                        const targetPosition = rect.top + window.pageYOffset - 100;
                         window.scrollTo({
                             top: targetPosition,
                             behavior: 'smooth'
                         });
-                        observer.disconnect();
                     }
-                });
-            }, {
-                threshold: 0.1
-            });
-            
-            observer.observe(element);
-            
-            // 设置超时，如果元素长时间不可见，强制滚动
-            setTimeout(() => {
-                observer.disconnect();
-                const targetPosition = element.getBoundingClientRect().top + window.pageYOffset - 100;
-                window.scrollTo({
-                    top: targetPosition,
-                    behavior: 'smooth'
-                });
-            }, 1000);
-        } catch (error) {
-            console.error('Smooth scroll failed:', error);
-            // 回退到简单滚动
-            element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
+                }
+            } catch (error) {
+                element.scrollIntoView();
+            }
+        };
+
+        requestAnimationFrame(() => {
+            requestAnimationFrame(scroll);
+        });
     }
     
     async startCompression() {
@@ -340,7 +355,6 @@ class AdvancedAudioCompressor {
         this.compressedResults = [];
         this.isProcessing = true;
         
-        // 重置进度条
         this.progressFill.style.width = '0%';
         this.progressFill.style.transition = 'none';
         
@@ -352,32 +366,22 @@ class AdvancedAudioCompressor {
         try {
             for (let i = 0; i < this.selectedFiles.length; i++) {
                 const file = this.selectedFiles[i];
-                
-                // 初始进度显示
                 this.updateProgress(i, 0, file.name);
                 this.showStatus(`Starting to process ${file.name}...`, 'info');
                 
                 try {
-                    console.log(`Starting compression for file ${i + 1}/${this.selectedFiles.length}:`, file.name);
-                    
-                    // 检查文件类型
                     if (!file.type.startsWith('audio/')) {
                         throw new Error('Invalid file type. Only audio files are supported.');
                     }
                     
-                    // 检查文件大小
-                    if (file.size > 100 * 1024 * 1024) { // 100MB limit
+                    if (file.size > 100 * 1024 * 1024) {
                         throw new Error('File too large. Maximum size is 100MB.');
                     }
                     
-                    // 传递进度回调函数
                     const result = await this.compressAudio(file, (progress) => {
                         this.updateProgress(i, progress, file.name);
                     });
                     
-                    console.log('Compression completed for:', file.name, result);
-                    
-                    // 完成当前文件的进度
                     this.updateProgress(i, 100, file.name);
                     
                     this.compressedResults.push(result);
@@ -386,7 +390,6 @@ class AdvancedAudioCompressor {
                     totalOriginalSize += file.size;
                     successCount++;
                     
-                    // 保存到历史记录
                     this.compressionHistory.push({
                         timestamp: new Date().toISOString(),
                         originalFile: file.name,
@@ -397,14 +400,11 @@ class AdvancedAudioCompressor {
                     
                     this.showStatus(`Successfully compressed ${file.name}`, 'success');
                 } catch (error) {
-                    console.error(`Error processing ${file.name}:`, error);
                     this.showStatus(`Error processing ${file.name}: ${error.message}`, 'error');
-                    // 继续处理下一个文件
                     continue;
                 }
             }
             
-            // 最终进度设置为100%
             this.progressFill.style.width = '100%';
             this.progressText.textContent = 'Processing complete!';
             
@@ -419,7 +419,6 @@ class AdvancedAudioCompressor {
                 this.showStatus('No files were successfully compressed', 'error');
             }
         } catch (error) {
-            console.error('Compression process failed:', error);
             this.showStatus('Compression process failed: ' + error.message, 'error');
         } finally {
             this.progressSection.style.display = 'none';
@@ -456,34 +455,25 @@ class AdvancedAudioCompressor {
                 });
             });
         } catch (error) {
-            console.error('Error in compressAudio:', error);
             throw error;
         }
     }
     
     showResults() {
-        if (!this.resultsSection || !this.resultsContainer) return;
+        if (!this.resultsSection || this.compressedResults.length === 0) return;
         
         this.resultsSection.style.display = 'block';
-        this.resultsContainer.innerHTML = '';
         
-        this.compressedResults.forEach((result, index) => {
-            const resultItem = this.createResultItem(result, index);
-            this.resultsContainer.appendChild(resultItem);
-        });
-
-        // 等待 DOM 更新后滚动
-        this.$nextTick(() => {
-            if (this.resultsSection) {
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
                 this.smoothScrollTo(this.resultsSection);
-            }
+            });
         });
     }
     
     showCompressionSummary(successCount, totalSaved, totalOriginalSize, processingTime) {
         if (!this.summaryStats) return;
         
-        // 确保摘要部分可见
         this.summaryStats.style.display = 'block';
         this.summaryStats.classList.add('large-summary');
         
@@ -507,20 +497,19 @@ class AdvancedAudioCompressor {
         
         if (elements.avgCompression) {
             const compressionRatio = totalOriginalSize > 0 
-                ? Math.round((totalSaved / totalOriginalSize) * 100)
+                ? ((totalSaved / totalOriginalSize) * 100).toFixed(1)
                 : 0;
             elements.avgCompression.textContent = `${compressionRatio >= 0 ? '-' : '+'}${Math.abs(compressionRatio)}%`;
         }
         
         if (elements.processingTime) {
-            elements.processingTime.textContent = processingTime + 's';
+            elements.processingTime.textContent = parseFloat(processingTime).toFixed(1) + 's';
         }
 
-        // 等待 DOM 更新后滚动
-        this.$nextTick(() => {
-            if (this.summaryStats) {
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
                 this.smoothScrollTo(this.summaryStats);
-            }
+            });
         });
     }
     
@@ -596,10 +585,8 @@ class AdvancedAudioCompressor {
             link.download = 'compressed_audio.zip';
             link.click();
             
-            // 清理URL对象
             setTimeout(() => URL.revokeObjectURL(link.href), 100);
         } catch (error) {
-            console.error('Download failed:', error);
             this.showStatus('Failed to download: ' + error.message, 'error');
         }
     }
@@ -610,7 +597,6 @@ class AdvancedAudioCompressor {
             return;
         }
         
-        // 清理所有URL对象
         this.compressedResults.forEach(result => {
             if (result.blob) {
                 URL.revokeObjectURL(URL.createObjectURL(result.blob));
@@ -678,41 +664,30 @@ class AdvancedAudioCompressor {
 
     updateProgress(fileIndex, fileProgress, fileName) {
         const totalFiles = this.selectedFiles.length;
-        // 计算当前文件的权重（基于文件大小）
         const currentFile = this.selectedFiles[fileIndex];
         const totalSize = this.selectedFiles.reduce((sum, file) => sum + file.size, 0);
         const fileWeight = currentFile.size / totalSize;
         
-        // 计算已完成文件的进度
         const completedProgress = this.selectedFiles
             .slice(0, fileIndex)
             .reduce((sum, file) => sum + (file.size / totalSize) * 100, 0);
         
-        // 计算当前文件的进度贡献
         let currentFileProgress;
         
-        // 根据不同的进度阶段使用不同的计算方式
         if (fileProgress <= 25) {
-            // 初始化和解码阶段 (0-25%)
             currentFileProgress = fileProgress * fileWeight;
         } else if (fileProgress <= 95) {
-            // 编码阶段 (25-95%)
-            // 确保进度在编码阶段缓慢增长
-            const encodingProgress = (fileProgress - 25) * (70 / 70); // 将25-95映射到25-95
+            const encodingProgress = (fileProgress - 25) * (70 / 70);
             currentFileProgress = (25 + encodingProgress) * fileWeight;
         } else {
-            // 完成阶段 (95-100%)
             currentFileProgress = 95 * fileWeight + (fileProgress - 95) * fileWeight;
         }
         
-        // 总进度 = 已完成文件的进度 + 当前文件的进度
         const totalProgress = completedProgress + currentFileProgress;
         
-        // 添加平滑过渡效果
         this.progressFill.style.transition = 'width 0.5s ease-out';
         this.progressFill.style.width = `${Math.min(totalProgress, 100)}%`;
         
-        // 更新进度文本，添加更多详细信息
         let statusText = `Processing: ${fileName} (${fileIndex + 1}/${totalFiles})`;
         if (fileProgress < 100) {
             statusText += ` - ${Math.round(fileProgress)}%`;

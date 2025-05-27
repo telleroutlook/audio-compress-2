@@ -85,7 +85,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, shallowRef, computed } from 'vue';
+import { ref, reactive, onMounted, shallowRef, computed, nextTick, watch } from 'vue';
 import type { Settings, CompressionStats, CompressedResult } from './types';
 
 const FileList = shallowRef();
@@ -109,7 +109,6 @@ const loadAudioCompressor = async () => {
     isAudioCompressorLoaded.value = true;
     return true;
   } catch (error) {
-    console.error('Failed to load audio compressor:', error);
     showStatus('Failed to load audio compressor module', 'error');
     return false;
   }
@@ -120,11 +119,11 @@ onMounted(async () => {
 
   try {
     const [
-      FileListModule,
-      ControlsPanelModule,
-      ProgressSectionModule,
-      SummaryStatsModule,
-      ResultsSectionModule
+      fileListModule,
+      controlsPanelModule,
+      progressSectionModule,
+      summaryStatsModule,
+      resultsSectionModule
     ] = await Promise.all([
       import('./components/FileList.vue'),
       import('./components/ControlsPanel.vue'),
@@ -132,18 +131,17 @@ onMounted(async () => {
       import('./components/SummaryStats.vue'),
       import('./components/ResultsSection.vue')
     ]);
-
-    FileList.value = FileListModule.default;
-    ControlsPanel.value = ControlsPanelModule.default;
-    ProgressSection.value = ProgressSectionModule.default;
-    SummaryStats.value = SummaryStatsModule.default;
-    ResultsSection.value = ResultsSectionModule.default;
-
-    await loadAudioCompressor();
+    
+    FileList.value = fileListModule.default;
+    ControlsPanel.value = controlsPanelModule.default;
+    ProgressSection.value = progressSectionModule.default;
+    SummaryStats.value = summaryStatsModule.default;
+    ResultsSection.value = resultsSectionModule.default;
+    
     isComponentsLoaded.value = true;
+    await loadAudioCompressor();
   } catch (error) {
-    console.error('Failed to load components:', error);
-    showStatus('Failed to load audio compressor components', 'error');
+    showStatus('Failed to initialize application', 'error');
   }
 });
 
@@ -303,13 +301,52 @@ const startCompression = async () => {
     showSummary.value = true;
     showResults.value = true;
     showStatus('Compression completed successfully!', 'success');
+
+    nextTick(() => {
+      requestAnimationFrame(() => {
+        const summaryElement = document.querySelector('.summary-stats');
+        if (summaryElement) {
+          summaryElement.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'start',
+            inline: 'nearest'
+          });
+        }
+      });
+    });
   } catch (error) {
-    console.error('Compression failed:', error);
     showStatus('Compression failed. Please try again.', 'error');
   } finally {
     isProcessing.value = false;
   }
 };
+
+const scrollToElement = (selector: string) => {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      const element = document.querySelector(selector);
+      if (element) {
+        element.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'start',
+          inline: 'nearest'
+        });
+      }
+    });
+  });
+};
+
+watch(selectedFiles, (newFiles) => {
+  if (newFiles.length > 0) {
+    scrollToElement('.controls-panel');
+  }
+}, { deep: true });
+
+watch(compressedResults, (newResults) => {
+  if (newResults.length > 0) {
+    scrollToElement('.results-section');
+  }
+}, { deep: true });
 </script>
 
 <style scoped>
